@@ -5,42 +5,52 @@
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <TimeLib.h>
-#include <ArduinoJson.h>
 
+//#define SERIAL_ON 
+#define TAP_OPEN_CONTROL 5
+//#define TAP_CLOSE_CONTROL 4
+//------------- NTP ---------------
 #define GMTOFFSET_SEC 7200 //GMT+2
-const char* ssid = "2.4"; //Enter SSID
-const char* password = "0542070459"; //Enter Password
-const byte relay = 2; 
-uint32_t timer_count = 0;
-    
-ESP8266WebServer HTTP(80);
-FtpServer ftpSrv;
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org", GMTOFFSET_SEC);
+//--------------------------------
 
-const size_t capacity_read = 2*JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(3) +40;
-StaticJsonDocument<capacity_read> json;
+const char* ssid = "2.4"; //Enter SSID
+const char* password = "0542070459"; //Enter Password 
 
-char status[2][6] = {"Open","Close"};
+
+uint32_t timer_count = 0;    
+ESP8266WebServer HTTP(80);
+FtpServer ftpSrv;
+
 
 void setup() {
-  unsigned char json_text[512]={0};
-  pinMode(2, OUTPUT);
-  digitalWrite(2, LOW);
+pinMode(TAP_OPEN_CONTROL, OUTPUT);
+digitalWrite(TAP_OPEN_CONTROL, LOW);
+
+#ifdef SERIAL_ON
   Serial.begin(115200);
-  WiFi.begin(ssid, password);
   Serial.println("");
-  while (WiFi.status() != WL_CONNECTED) {
+#endif
+  WiFi.begin(ssid, password);
+  while (WiFi.status()!= WL_CONNECTED) {
      delay(500);
+     #ifdef SERIAL_ON
      Serial.print("*");
+     #endif
   }
+  
+  #ifdef SERIAL_ON
   Serial.println("");
   Serial.println("WiFi connection Successful");
   Serial.print("The IP Address of ESP8266 Module is: ");
   Serial.println(WiFi.localIP());
+  #endif
   //----------------------------------//
   SPIFFS.begin();
+  #ifdef SERIAL_ON
   Serial.println("Started SPIFFS");
+  #endif
   timeClient.begin();
   timeClient.update();
   Serial.println("Started NTP client");
@@ -75,47 +85,12 @@ void setup() {
   timer1_attachInterrupt(onTimerISR);
   timer1_enable(TIM_DIV256, TIM_EDGE, TIM_LOOP);
   timer1_write(4687500); //15000000 us = 15s.
-
-  // Use arduinojson.org/assistant to compute the capacity.
-  File mfile = SPIFFS.open("/times.json","r");
-  if (!mfile) {
-    Serial.println("file open failed");
-    return;
-  }else{
-    int rc = mfile.read(json_text, 512);
-    mfile.close();
-    Serial.print(rc);
-    Serial.println(" bytes read from times.json");
-  }
-  // Parse JSON object
-  DeserializationError error = deserializeJson(json, json_text);
-  if (error) {
-    Serial.print(F("deserializeJson() failed: "));
-    Serial.println(error.c_str());
-    return;
-  }
-  byte o_h = json["open"]["hour"];
-  byte o_m = json["open"]["min"];
-  byte c_h = json["close"]["hour"];
-  byte c_m = json["close"]["min"];
-  char s[35];
-  sprintf( s, "Opens at %02d:%02d", o_h, o_m);
-  Serial.println(s);
-  sprintf( s, "Closes at %02d:%02d", c_h, c_m);
-  Serial.println(s);
-  byte status_val = json["status"];
-  sprintf(s,"The tap now is %s", status[status_val]);
-  Serial.println(s);
 }
 
 void onTimerISR(){
-    if (++timer_count >= 4*60*6) {//every 6h
-      //Serial.println("----pre-----");
-      //Serial.println(timeClient.getFormattedTime());
+    if (++timer_count >= 4*60*8) {//every 8h
       timeClient.update();
       timer_count=0;
-      //Serial.println("----post-----");
-      //Serial.println(timeClient.getFormattedTime());
     }
 }
 
@@ -125,41 +100,15 @@ void loop() {
 }
 
 String relay_status() {
-  return String(digitalRead(relay));
+  return String(digitalRead(TAP_OPEN_CONTROL));
 }
 
 String relay_switch() { 
-  char state = 1-digitalRead(relay);
-  File mfile = SPIFFS.open("/times_2.json","w");
-  if (!mfile) {
-    Serial.println("file open failed");
-    return String(digitalRead(relay));
-  }
-
-  const size_t capacity_write = 2*JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(3);
-  StaticJsonDocument<capacity_write> doc;
-
-
-  JsonObject open = doc.createNestedObject("open");
-  open["hour"] = 7;
-  open["min"] = 30;
-  
-  JsonObject close = doc.createNestedObject("close");
-  close["hour"] = 19;
-  close["min"] = 0;
-  doc["status"] = 1;
-
-  serializeJson(doc, Serial);
-  
-  // Serialize JSON to file
-  if (serializeJson(json, mfile) == 0) {
-    Serial.println(F("Failed to write to file"));
-    json["status"] = digitalRead(relay);
-    return String(digitalRead(relay));
-  }
-  mfile.close();
-  digitalWrite(relay, state);
-  return String(state);
+  Serial.println("Relay_switch");
+  bool new_status = !(digitalRead(TAP_OPEN_CONTROL));
+  digitalWrite(TAP_OPEN_CONTROL, new_status);
+  Serial.println(String(digitalRead(new_status)));
+  return String(new_status);
 }
 
 bool sendFile(String path){ 
@@ -172,13 +121,13 @@ bool sendFile(String path){
   return true;                                   
 }
 
-String getContentType(String filename){                                 // Функция, возвращающая необходимый заголовок типа содержимого в зависимости от расширения файла
-  if (filename.endsWith(".html")) return "text/html";                   // Если файл заканчивается на ".html", то возвращаем заголовок "text/html" и завершаем выполнение функции
-  else if (filename.endsWith(".css")) return "text/css";                // Если файл заканчивается на ".css", то возвращаем заголовок "text/css" и завершаем выполнение функции
-  else if (filename.endsWith(".js")) return "application/javascript";   // Если файл заканчивается на ".js", то возвращаем заголовок "application/javascript" и завершаем выполнение функции
-  else if (filename.endsWith(".png")) return "image/png";               // Если файл заканчивается на ".png", то возвращаем заголовок "image/png" и завершаем выполнение функции
-  else if (filename.endsWith(".jpg")) return "image/jpeg";              // Если файл заканчивается на ".jpg", то возвращаем заголовок "image/jpg" и завершаем выполнение функции
-  else if (filename.endsWith(".gif")) return "image/gif";               // Если файл заканчивается на ".gif", то возвращаем заголовок "image/gif" и завершаем выполнение функции
-  else if (filename.endsWith(".ico")) return "image/x-icon";            // Если файл заканчивается на ".ico", то возвращаем заголовок "image/x-icon" и завершаем выполнение функции
-  return "text/plain";                                                  // Если ни один из типов файла не совпал, то считаем что содержимое файла текстовое, отдаем соответствующий заголовок и завершаем выполнение функции
+String getContentType(String filename){
+  if (filename.endsWith(".html")) return "text/html";
+  else if (filename.endsWith(".css")) return "text/css";
+//  else if (filename.endsWith(".js")) return "application/javascript";
+//  else if (filename.endsWith(".png")) return "image/png";
+//  else if (filename.endsWith(".jpg")) return "image/jpeg";
+//  else if (filename.endsWith(".gif")) return "image/gif";
+//  else if (filename.endsWith(".ico")) return "image/x-icon";
+  return "text/plain";
 }
