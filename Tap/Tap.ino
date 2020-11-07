@@ -33,8 +33,8 @@ Config conf;
 bool upload_flag = false;
 bool auto_open = false;
 //------------------------------------
-const char* ssid = "2.4";
-const char* password = "0542070459";
+const char* ssid = "SSID";
+const char* password = "PSW";
 const char* conf_file ="/conf.json";
 
 uint32_t timer_count = 0;    
