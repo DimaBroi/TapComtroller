@@ -154,7 +154,6 @@ void setup() {
 
   HTTP.on("/time",[](){
     HTTP.send(200,"text/plain", timeClient.getFormattedTime());
-    HTTP.send(200,"text/plain", timeClient.getFormattedTime());
   });
 
   HTTP.on("/conf",[](){
@@ -216,9 +215,19 @@ String relay_status() {
 
 String relay_switch() { 
   Serial.println("Relay_switch");
-  bool new_status = !(digitalRead(TAP_OPEN_CONTROL));
-  digitalWrite(TAP_OPEN_CONTROL, new_status);
+
+  bool new_status = !(digitalRead(TAP_CLOSE_CONTROL));
+  digitalWrite(TAP_CLOSE_CONTROL, new_status);
+  #ifdef SERIAL_ON
   Serial.println(String(digitalRead(new_status)));
+  #endif
+  
+  new_status = !(digitalRead(TAP_OPEN_CONTROL));
+  digitalWrite(TAP_OPEN_CONTROL, new_status);
+  #ifdef SERIAL_ON
+  Serial.println(String(digitalRead(new_status)));
+  #endif
+
   return String(new_status);
 }
 
