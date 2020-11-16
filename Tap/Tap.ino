@@ -8,7 +8,7 @@
 #include <ArduinoJson.h>
 #include <ArduinoOTA.h>
 
-#define SERIAL_ON 
+//#define SERIAL_ON 
 #define TAP_OPEN_CONTROL 5
 #define TAP_CLOSE_CONTROL 4
 
@@ -43,9 +43,8 @@ FtpServer ftpSrv;
 
 void setup() {
   pinMode(TAP_OPEN_CONTROL, OUTPUT);
-  digitalWrite(TAP_OPEN_CONTROL, LOW);
   pinMode(TAP_CLOSE_CONTROL, OUTPUT);
-  digitalWrite(TAP_OPEN_CONTROL, HIGH);
+  
 #ifdef SERIAL_ON
   Serial.begin(115200);
   Serial.println("");
@@ -147,6 +146,10 @@ void setup() {
     upload_flag = true;
   });
 
+  HTTP.on("/help",[](){
+    HTTP.send(200,"text/plain", "{ conf, time, upload, done, restart, debug }");
+  });
+  
   HTTP.on("/done",[](){
     HTTP.send(200,"text/plain", "....Exiting upload mode....");
     upload_flag = false;
@@ -156,10 +159,17 @@ void setup() {
     HTTP.send(200,"text/plain", timeClient.getFormattedTime());
   });
 
+  HTTP.on("/debug",[](){
+    char buffer[150];
+    sprintf(buffer,"auto_open = %d\nshouldOpen = %d ( 0 - false, else - True )\nTAP_OPEN_CONTROL = %d\nTAP_CLOSE_CONTROL = %d"
+                    ,auto_open, shouldOpen(),digitalRead(TAP_OPEN_CONTROL), digitalRead(TAP_CLOSE_CONTROL));
+    HTTP.send(200,"text/plain", buffer);
+  });
+
   HTTP.on("/conf",[](){
     char buffer[100];
     update_conf();
-    sprintf(buffer, "....opens at %d:%d ....\n....close at %d:%d ....",
+    sprintf(buffer, "....opens at %02d:%02d ....\n....close at %02d:%02d ....",
                                   conf.o_h,conf.o_m,conf.c_h,conf.c_m);
     HTTP.send(200,"text/plain", buffer);
   });
@@ -174,30 +184,49 @@ void setup() {
   timer1_attachInterrupt(onTimerISR);
   timer1_enable(TIM_DIV256, TIM_EDGE, TIM_LOOP);
   timer1_write(4687500); //15000000 us = 15s.
+  
+  if (shouldOpen()){
+    open_tap();
+    auto_open = true;
+  }else{
+    close_tap();
+  }
 }
 
 bool shouldOpen(){
-  return ((conf.o_h <= timeClient.getHours() and timeClient.getHours() <= conf.c_h) and 
-          (conf.o_m <= timeClient.getMinutes() and  timeClient.getMinutes() <= conf.c_m));
+  //int time_in
+  return (conf.o_h <= timeClient.getHours() and timeClient.getHours() < conf.c_h) ;
+         // and (conf.o_m <= timeClient.getMinutes() and  timeClient.getMinutes() <= conf.c_m));
 }
 void onTimerISR(){
     if (++timer_count >= 4*60*8) {//every 8h
       timeClient.update();
       timer_count=0;
     }
-    
+    conf_tap();
+}
+
+void conf_tap(){
     if(not auto_open and shouldOpen()){
-        digitalWrite(TAP_OPEN_CONTROL, HIGH);
-        digitalWrite(TAP_CLOSE_CONTROL, LOW);
+        open_tap();
         auto_open = true;
     }
     else{
       if(auto_open and not shouldOpen()){
-        digitalWrite(TAP_OPEN_CONTROL, LOW);
-        digitalWrite(TAP_CLOSE_CONTROL, HIGH);
+        close_tap();
         auto_open = false;
       }
-   }  
+   }    
+}
+
+void open_tap(){
+  digitalWrite(TAP_OPEN_CONTROL, HIGH);
+  digitalWrite(TAP_CLOSE_CONTROL, LOW); 
+}
+
+void close_tap(){
+  digitalWrite(TAP_OPEN_CONTROL, LOW);
+  digitalWrite(TAP_CLOSE_CONTROL, HIGH);
 }
 
 void loop() {
